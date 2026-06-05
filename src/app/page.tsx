@@ -39,11 +39,13 @@ function validateRow(r: OrderRow): OrderRow['_errors'] {
  * 外部编码为空的行不参与重复判定。校验会清掉旧的 _duplicateWithBatch（编辑后该判定已失效）。
  */
 function validateAll(rows: OrderRow[]): OrderRow[] {
-  const seen = new Map<string, number>();
+  const seen = new Set<string>();
   return rows.map((r) => {
     const code = String(r.外部编码 || '').trim();
-    const isDupInBatch = !!code && seen.has(code);
-    if (code && !isDupInBatch) seen.set(code, 1);
+    const sku = String(r.SKU物品编码 || '').trim();
+    const key = `${code}||${sku}`;
+    const isDupInBatch = !!(code && sku) && seen.has(key);
+    if (code && sku && !isDupInBatch) seen.add(key);
     return {
       ...r,
       _errors: validateRow(r),
