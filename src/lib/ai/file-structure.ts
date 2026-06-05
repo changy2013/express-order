@@ -66,24 +66,34 @@ function extractExcelStructure(buffer: Buffer): string {
     });
     if (rows.length > MAX_PREVIEW_ROWS) parts.push(`... (还有 ${rows.length - MAX_PREVIEW_ROWS} 行)`);
 
-    // 矩阵格式检测：SKU字段在左、门店名在右、交叉位置是数字 → 提示 AI 用 matrix
+    // 矩阵格式检测：SKU列在左、右侧额外列含数值 → 提示 AI 用 matrix
     if (rows.length > 1) {
       const headerRow = rows[0] as unknown[];
-      const skuKw = ['物品编码', 'SKU编码', '商品编码', 'SKU名称', '物品名称', '商品名称', 'SKU条码'];
-      const storeKw = ['银泰', '金银潭', '金桥', '门店', '商场', '店铺', '分店'];
-      const balanceKw = ['结余', '剩余', '库存', '合计', '可用', '冻结'];
-      const hasSku = skuKw.some(kw => headerRow.some((c, ci) => ci < headerRow.length - 3 && String(c).includes(kw)));
-      const hasStore = storeKw.some(kw => headerRow.some(c => String(c).includes(kw)));
-      // 检查数据行在疑似门店列是否有数值
-      const storeColIdx = headerRow.findIndex(c => storeKw.some(kw => String(c).includes(kw)));
-      const hasDataInStoreCols = storeColIdx >= 0 && rows.slice(1, Math.min(5, rows.length)).some(
-        r => (r as unknown[]).slice(storeColIdx, storeColIdx + 5).some(c => !isNaN(Number(c)) && Number(c) > 0)
-      );
-      if (hasSku && hasStore && hasDataInStoreCols) {
-        const balanceCols = headerRow.map((c, ci) => (balanceKw.some(kw => String(c).includes(kw)) ? ci : -1)).filter(ci => ci >= 0);
-        parts.push(`⚠️ 结构提示：该工作表可能是 SKU×门店矩阵格式。门店列在右侧（列名如"银泰/金银潭/金桥/门店…"），SKU字段在左侧。`);
-        if (balanceCols.length) parts.push(`⚠️ 列 ${balanceCols.join(', ')} 是汇总/结余列，不是门店列，storeEndCol 不要包含它们。`);
-        parts.push(`请使用 specialMode:"matrix" + matrixConfig 来解析。`);
+      const skuKw = ['物品编码', 'SKU编码', '商品编码', 'SKU名称', '物品名称', '商品名称', '规格'];
+      const skipColKw = ['结余', '剩余', '合计', '小计', '总计', '汇总', '库存', '在库', '可用', '待移入', '分配', '冻结', '待', '总和'];
+
+      // 找到最后一个 SKU 相关列的位置
+      let lastSkuCol = -1;
+      for (let ci = 0; ci < headerRow.length; ci++) {
+        if (skuKw.some(kw => String(headerRow[ci] || '').includes(kw))) lastSkuCol = ci;
+      }
+
+      // SKU 列之后，排除跳过的列（结余/库存等），剩下的全是门店列
+      if (lastSkuCol >= 0 && lastSkuCol < headerRow.length - 2) {
+        const storeCandidates: number[] = [];
+        const balanceCandidates: number[] = [];
+        for (let ci = lastSkuCol + 1; ci < headerRow.length; ci++) {
+          const header = String(headerRow[ci] || '').trim();
+          if (!header) continue;
+          if (skipColKw.some(kw => header.includes(kw))) { balanceCandidates.push(ci); continue; }
+          storeCandidates.push(ci);
+        }
+
+        if (storeCandidates.length >= 2) {
+          parts.push('⚠️ 结构提示：该工作表可能是 SKU×门店矩阵格式。左侧为SKU字段，右侧 ' + storeCandidates.length + ' 列为门店（交叉格为订货量，空/0=无需订货）。');
+          if (balanceCandidates.length) parts.push('⚠️ 列 ' + balanceCandidates.join(', ') + ' 为汇总/结余列，不是门店列，storeEndCol 不要包含它们。');
+          parts.push('请使用 specialMode:"matrix" + matrixConfig。storeStartCol=' + storeCandidates[0] + ', storeEndCol=' + storeCandidates[storeCandidates.length - 1] + '。');
+        }
       }
     }
   });
