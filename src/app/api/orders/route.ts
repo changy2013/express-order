@@ -57,12 +57,12 @@ export async function GET(req: NextRequest) {
     const listParams = [...params, pageSize, offset];
     const r = await query(
       `SELECT
-         ${groupExpr} AS external_code,
-         MAX(store_name) as store_name,
-         MAX(receiver_name) as receiver_name,
-         MAX(receiver_phone) as receiver_phone,
-         MAX(receiver_address) as receiver_address,
-         MAX(remark) as remark,
+         ${groupExpr} AS "外部编码",
+         MAX(store_name) as "收货门店",
+         MAX(receiver_name) as "收件人姓名",
+         MAX(receiver_phone) as "收件人电话",
+         MAX(receiver_address) as "收件人地址",
+         MAX(remark) as "备注",
          COUNT(*)::int as sku_count,
          MAX(created_at) as created_at,
          json_agg(json_build_object(
