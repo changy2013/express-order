@@ -1,15 +1,16 @@
+/**
+ * 出库单提交 / 查询 —— outbound_orders + import_batches
+ * GET    ?type=batches            列出导入批次
+ * GET    ?batchId=xxx             查某批次的出库单（默认查全部，limit 500）
+ * POST   { rows, fileName, fileSize, ruleId, ruleName }  创建批次并批量写入
+ * DELETE ?id=xxx | ?batchId=xxx   删除单条 / 整批
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
-import { Order } from '@/types';
+import type { OrderRow } from '@/types';
 
 export const runtime = 'nodejs';
-
-// Generate tracking numbers like JT260605xxxxxx
-function generateOrderNo(): string {
-  const dateStr = new Date().toISOString().slice(2, 10).replace(/-/g, '');
-  const rand = Math.floor(100000 + Math.random() * 900000); // 6-digit random
-  return `JT${dateStr}${rand}`;
-}
+export const maxDuration = 60;
 
 export async function GET(req: NextRequest) {
   try {
@@ -17,114 +18,104 @@ export async function GET(req: NextRequest) {
     const type = searchParams.get('type');
     const batchId = searchParams.get('batchId');
 
-    // Case 1: Fetch all import batches for statistics/history logs
     if (type === 'batches') {
-      const result = await query('SELECT * FROM import_batches');
-      return NextResponse.json({ batches: result.rows });
+      const r = await query('SELECT * FROM import_batches ORDER BY created_at DESC LIMIT 200');
+      return NextResponse.json({ batches: r.rows });
     }
 
-    // Case 2: Fetch orders, optionally filtered by batch_id
-    let result;
-    if (batchId) {
-      result = await query('SELECT * FROM orders WHERE batch_id = $1', [batchId]);
-    } else {
-      result = await query('SELECT * FROM orders');
-    }
-
-    return NextResponse.json({ orders: result.rows });
+    const r = batchId
+      ? await query('SELECT * FROM outbound_orders WHERE batch_id = $1 ORDER BY created_at DESC LIMIT 2000', [batchId])
+      : await query('SELECT * FROM outbound_orders ORDER BY created_at DESC LIMIT 500');
+    return NextResponse.json({ orders: r.rows });
   } catch (error: any) {
-    console.error('Fetch orders/batches failed:', error);
-    return NextResponse.json({ error: error.message || '内部服务错误' }, { status: 500 });
+    console.error('fetch orders failed:', error);
+    return NextResponse.json({ error: error.message || '查询失败' }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { orders, batchId } = body as { orders: Omit<Order, 'id' | 'order_no' | 'status'>[]; batchId?: string };
+    const { rows, fileName, fileSize, ruleId, ruleName } = body as {
+      rows: OrderRow[];
+      fileName?: string;
+      fileSize?: number;
+      ruleId?: string;
+      ruleName?: string;
+    };
 
-    if (!orders || !Array.isArray(orders) || orders.length === 0) {
-      return NextResponse.json({ error: '没有提供可提交的订单数据' }, { status: 400 });
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return NextResponse.json({ error: '没有可提交的出库单数据' }, { status: 400 });
     }
 
-    console.log(`正在导入 ${orders.length} 条订单到数据库...`);
-    const insertedOrders: Order[] = [];
+    // 创建批次
+    const batchId = crypto.randomUUID();
+    await query(
+      `INSERT INTO import_batches(id, file_name, file_size, rule_id, rule_name, status, order_count)
+       VALUES($1, $2, $3, $4, $5, 'success', $6)`,
+      [batchId, fileName || '未命名文件', fileSize || 0, ruleId || null, ruleName || null, rows.length]
+    );
 
-    // Process each order
-    for (const order of orders) {
-      const orderId = crypto.randomUUID();
-      const orderNo = generateOrderNo();
-      
-      const params = [
-        orderId,
-        batchId || null,
-        orderNo,
-        order.sender_name || '',
-        order.sender_phone || '',
-        order.sender_address || '',
-        order.receiver_name || '',
-        order.receiver_phone || '',
-        order.receiver_address || '',
-        order.goods_name || '包裹',
-        Number(order.quantity) || 1,
-        Number(order.weight) || 1.0,
-        Number(order.volume) || 0.01,
-        order.remark || '',
-        'pending' // Status becomes 'pending' (待发送) once confirmed
-      ];
-
-      await query(
-        `INSERT INTO orders(
-          id, batch_id, order_no, 
-          sender_name, sender_phone, sender_address, 
-          receiver_name, receiver_phone, receiver_address, 
-          goods_name, quantity, weight, volume, remark, status
-        ) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
-        params
-      );
-
-      insertedOrders.push({
-        id: orderId,
-        batch_id: batchId,
-        order_no: orderNo,
-        ...order,
-        status: 'pending'
+    // 批量插入出库单（分批构造多值 INSERT，避免 1000+ 行逐条往返）
+    const CHUNK = 200;
+    for (let i = 0; i < rows.length; i += CHUNK) {
+      const chunk = rows.slice(i, i + CHUNK);
+      const values: any[] = [];
+      const placeholders: string[] = [];
+      chunk.forEach((row, idx) => {
+        const base = idx * 12;
+        placeholders.push(
+          `($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7},$${base + 8},$${base + 9},$${base + 10},$${base + 11},$${base + 12})`
+        );
+        values.push(
+          crypto.randomUUID(),
+          batchId,
+          row.外部编码 || null,
+          row.收货门店 || null,
+          row.收件人姓名 || null,
+          row.收件人电话 || null,
+          row.收件人地址 || null,
+          row.SKU物品编码 || '',
+          row.SKU物品名称 || '',
+          Number(row.SKU发货数量) || 1,
+          row.SKU规格型号 || null,
+          row.备注 || null
+        );
       });
-    }
-
-    // If batchId is provided, update the status of the batch to 'success' in database
-    if (batchId) {
       await query(
-        'UPDATE import_batches SET status = $1, order_count = $2 WHERE id = $3',
-        ['success', orders.length, batchId]
+        `INSERT INTO outbound_orders(
+          id, batch_id, external_code, store_name, receiver_name, receiver_phone, receiver_address,
+          sku_code, sku_name, sku_quantity, sku_spec, remark
+        ) VALUES ${placeholders.join(',')}`,
+        values
       );
     }
 
-    return NextResponse.json({ 
-      success: true, 
-      count: insertedOrders.length,
-      orders: insertedOrders
-    });
-
+    return NextResponse.json({ success: true, batchId, count: rows.length });
   } catch (error: any) {
-    console.error('Submit orders failed:', error);
-    return NextResponse.json({ error: error.message || '导入订单失败' }, { status: 500 });
+    console.error('submit orders failed:', error);
+    return NextResponse.json({ error: error.message || '提交失败' }, { status: 500 });
   }
 }
 
 export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const orderId = searchParams.get('id');
+    const id = searchParams.get('id');
+    const batchId = searchParams.get('batchId');
 
-    if (!orderId) {
-      return NextResponse.json({ error: '缺少订单 ID' }, { status: 400 });
+    if (batchId) {
+      await query('DELETE FROM outbound_orders WHERE batch_id = $1', [batchId]);
+      await query('DELETE FROM import_batches WHERE id = $1', [batchId]);
+      return NextResponse.json({ success: true });
     }
-
-    await query('DELETE FROM orders WHERE id = $1', [orderId]);
-    return NextResponse.json({ success: true });
+    if (id) {
+      await query('DELETE FROM outbound_orders WHERE id = $1', [id]);
+      return NextResponse.json({ success: true });
+    }
+    return NextResponse.json({ error: '缺少 id 或 batchId' }, { status: 400 });
   } catch (error: any) {
-    console.error('Delete order failed:', error);
-    return NextResponse.json({ error: error.message || '删除订单失败' }, { status: 500 });
+    console.error('delete order failed:', error);
+    return NextResponse.json({ error: error.message || '删除失败' }, { status: 500 });
   }
 }
