@@ -3,7 +3,6 @@
 import { useMemo, useRef } from 'react';
 import { List, type RowComponentProps, type ListImperativeAPI } from 'react-window';
 import type { OrderRow } from '@/types';
-import { TEMP_ZONES } from '@/types';
 import type { ViewState, ViewActions, TargetKey } from './PageView';
 
 const COLUMNS: { key: TargetKey; label: string; width: number; required?: boolean }[] = [
@@ -16,8 +15,6 @@ const COLUMNS: { key: TargetKey; label: string; width: number; required?: boolea
   { key: 'SKU物品名称', label: 'SKU名称', width: 220, required: true },
   { key: 'SKU发货数量', label: '数量', width: 80, required: true },
   { key: 'SKU规格型号', label: '规格型号', width: 140 },
-  { key: '重量', label: '重量(kg)', width: 90 },
-  { key: '温层', label: '温层', width: 110 },
   { key: '备注', label: '备注', width: 140 },
 ];
 
@@ -48,48 +45,29 @@ function RowRenderer({ index, style, rows, updateCell, deleteRow }: RowComponent
     <div style={{ ...style, display: 'flex', width: INNER_WIDTH, background: bg, borderBottom: '1px solid var(--color-border)' }}>
       {COLUMNS.map((c) => {
         const cellErr = errFields.has(c.key);
-        const isZone = c.key === '温层';
         const val = c.key === 'SKU发货数量'
           ? String(row.SKU发货数量 ?? '')
-          : c.key === '重量'
-            ? (row.重量 != null ? String(row.重量) : '')
-            : ((row[c.key] as string) ?? '');
+          : ((row[c.key] as string) ?? '');
         return (
           <div key={c.key} style={{ width: c.width, padding: '0 4px', display: 'flex', alignItems: 'center' }}>
-            {isZone ? (
-              <select
-                value={val}
-                onChange={(e) => updateCell(row._id!, c.key, e.target.value)}
-                style={{
-                  width: '100%', height: 30, borderRadius: 4, padding: '0 4px', fontSize: 13,
-                  color: 'var(--color-text-main)', outline: 'none',
-                  border: cellErr ? '1px solid var(--color-error)' : '1px solid transparent',
-                  background: cellErr ? 'var(--color-error-bg)' : 'transparent',
-                }}
-              >
-                <option value="">—</option>
-                {TEMP_ZONES.map((z) => <option key={z} value={z}>{z}</option>)}
-              </select>
-            ) : (
-              <input
-                value={val}
-                onChange={(e) => updateCell(row._id!, c.key, e.target.value)}
-                type={c.key === 'SKU发货数量' || c.key === '重量' ? 'number' : 'text'}
-                title={cellErr ? (row._errors || []).find((e) => e.field === c.key)?.message : undefined}
-                style={{
-                  width: '100%', height: 30, borderRadius: 4, padding: '0 6px', fontSize: 13,
-                  color: cellErr ? 'var(--color-error)' : 'var(--color-text-main)', outline: 'none',
-                  border: cellErr ? '1px solid var(--color-error)' : '1px solid transparent',
-                  background: cellErr ? 'var(--color-error-bg)' : 'transparent',
-                  fontWeight: cellErr ? 600 : 400,
-                }}
-                onFocus={(e) => { e.target.style.border = '1px solid var(--color-primary)'; e.target.style.background = '#fff'; }}
-                onBlur={(e) => {
-                  e.target.style.border = cellErr ? '1px solid var(--color-error)' : '1px solid transparent';
-                  e.target.style.background = cellErr ? 'var(--color-error-bg)' : 'transparent';
-                }}
-              />
-            )}
+            <input
+              value={val}
+              onChange={(e) => updateCell(row._id!, c.key, e.target.value)}
+              type={c.key === 'SKU发货数量' ? 'number' : 'text'}
+              title={cellErr ? (row._errors || []).find((e) => e.field === c.key)?.message : undefined}
+              style={{
+                width: '100%', height: 30, borderRadius: 4, padding: '0 6px', fontSize: 13,
+                color: cellErr ? 'var(--color-error)' : 'var(--color-text-main)', outline: 'none',
+                border: cellErr ? '1px solid var(--color-error)' : '1px solid transparent',
+                background: cellErr ? 'var(--color-error-bg)' : 'transparent',
+                fontWeight: cellErr ? 600 : 400,
+              }}
+              onFocus={(e) => { e.target.style.border = '1px solid var(--color-primary)'; e.target.style.background = '#fff'; }}
+              onBlur={(e) => {
+                e.target.style.border = cellErr ? '1px solid var(--color-error)' : '1px solid transparent';
+                e.target.style.background = cellErr ? 'var(--color-error-bg)' : 'transparent';
+              }}
+            />
           </div>
         );
       })}

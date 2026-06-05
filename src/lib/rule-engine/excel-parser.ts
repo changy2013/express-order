@@ -209,6 +209,8 @@ function parseCard(
 ): OrderRow[] {
   const cc = config.cardConfig!;
   const result: OrderRow[] = [];
+  // 跳过汇总/合计类行：用户配置的 skipRowPatterns + 常见汇总关键词兜底
+  const skipKw = [...(config.skipRowPatterns || []), '合计', '小计', '汇总', '总计', '总数量', '总调拨'];
 
   // 找到所有卡片起始行
   const cardStarts: number[] = [];
@@ -217,6 +219,15 @@ function parseCard(
     if (firstCell.includes(cc.cardMarker)) {
       cardStarts.push(i);
     }
+  }
+
+  // 可选：从首张卡片之前的行提取文档级单号（如"调拨单号：DB20260530001"），用于派生每卡片外部编码
+  let docNumber = '';
+  if (cc.externalCodeGen?.docNumberPattern) {
+    const headEnd = cardStarts.length ? cardStarts[0] : rawRows.length;
+    const headText = rawRows.slice(0, headEnd).map((r) => (r || []).join('\t')).join('\n');
+    const m = headText.match(new RegExp(cc.externalCodeGen.docNumberPattern));
+    if (m) docNumber = (m[cc.externalCodeGen.group ?? 1] || '').trim();
   }
 
   for (let ci = 0; ci < cardStarts.length; ci++) {
@@ -271,15 +282,25 @@ function parseCard(
     const itemDataStart = itemHeaderRow + 1;
     const itemHeaderData = rawRows[itemHeaderRow] || [];
 
+    // 派生本卡片外部编码：文档单号 + 连接符 + 卡片序号（仅当卡片头部未提取到外部编码时）
+    let cardExternalCode = '';
+    if (cc.externalCodeGen && docNumber && !cardHeader.外部编码) {
+      const sep = cc.externalCodeGen.separator ?? '-';
+      cardExternalCode = `${docNumber}${sep}${ci + 1}`;
+    }
+
     for (let ri = itemDataStart; ri < endRow; ri++) {
       const row = rawRows[ri];
       if (!row || isEmptyRow(row)) continue;
+      // 卡片内遇到汇总/合计行：跳过，避免被当成物品行（如"合计：3 个门店 | 9 种物品"）
+      if (skipKw.some((kw) => rowContainsKeyword(row, kw))) continue;
 
       const itemRow = buildOrderRow(row, cc.itemFieldMappings, itemHeaderData, {}, {}, {});
       if (!itemRow.SKU物品编码 && !itemRow.SKU物品名称) continue;
 
       const finalRow: OrderRow = finalizeRow({
         ...buildStaticAndDefault(staticValues, defaultValues),
+        ...(cardExternalCode ? { 外部编码: cardExternalCode } : {}),
         ...cardHeader,
         ...itemRow,
       });
@@ -426,11 +447,9 @@ function buildOrderRow(
   });
 }
 
-/** 收尾：把引擎内部的字符串值转成 OrderRow 的强类型（目前 重量 需 string→number；空值→undefined） */
+/** 收尾：把引擎内部的字符串值转成 OrderRow 的强类型 */
 function finalizeRow(r: Record<string, unknown>): OrderRow {
-  const w = r['重量'];
-  const weight = (w === undefined || w === null || String(w).trim() === '') ? undefined : Number(w);
-  return { ...r, 重量: weight } as OrderRow;
+  return r as unknown as OrderRow;
 }
 
 /** 构建静态值和默认值的基础对象 */

@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { OrderRow, ParseRule, AIRecommendedRule, ImportBatch, ToastMessage, SubmitResult } from '@/types';
-import { TEMP_ZONES } from '@/types';
 import type { EditorRule } from './_components/RuleEditorModal';
 import { PageView } from './_components/PageView';
 import { blankRule } from '@/lib/blank-rule';
@@ -10,7 +9,7 @@ import { blankRule } from '@/lib/blank-rule';
 type Step = 'upload' | 'rule' | 'preview';
 type TargetKey =
   | '外部编码' | '收货门店' | '收件人姓名' | '收件人电话' | '收件人地址'
-  | 'SKU物品编码' | 'SKU物品名称' | 'SKU发货数量' | 'SKU规格型号' | '重量' | '温层' | '备注';
+  | 'SKU物品编码' | 'SKU物品名称' | 'SKU发货数量' | 'SKU规格型号' | '备注';
 
 /** 校验单行：返回精确到字段的错误列表（field 用目标字段名，便于单元格标红） */
 function validateRow(r: OrderRow): OrderRow['_errors'] {
@@ -28,18 +27,6 @@ function validateRow(r: OrderRow): OrderRow['_errors'] {
   const phone = String(r.收件人电话 || '').trim();
   if (phone && !/^(1[3-9]\d{9}|0\d{2,3}-?\d{7,8})$/.test(phone)) {
     errs.push({ field: '收件人电话', message: '电话格式不正确' });
-  }
-  // 重量（填写了才校验）：必须为正数
-  const weightRaw = r.重量;
-  if (weightRaw !== undefined && weightRaw !== null && String(weightRaw).trim() !== '') {
-    if (!(Number(weightRaw) > 0)) {
-      errs.push({ field: '重量', message: '重量必须为正数' });
-    }
-  }
-  // 温层（填写了才校验）：必须是允许值之一
-  const zone = String(r.温层 || '').trim();
-  if (zone && !(TEMP_ZONES as readonly string[]).includes(zone)) {
-    errs.push({ field: '温层', message: `温层须为 ${TEMP_ZONES.join('/')} 之一` });
   }
   return errs;
 }
@@ -217,11 +204,14 @@ export default function Home() {
         throw new Error('未能从文件中解析出任何有效数据，可能是规则与文件结构不匹配。请调整规则或手动配置后重试。');
       }
       setProgress({ active: true, percent: 100, label: '解析完成', current: parsed.length, total: parsed.length });
-      setRows(validateAll(parsed));
+      const validated = validateAll(parsed);
+      setRows(validated);
       setWarnings(d.warnings || []);
       setStep('preview');
       toast(`解析完成，共 ${parsed.length} 条`, 'success');
       setTimeout(() => setProgress((p) => ({ ...p, active: false })), 400);
+      // 预览阶段预检：查库标红"与已入库数据重复"的行（不阻塞主流程，失败静默）
+      precheckDuplicates(validated);
     } catch (e: any) {
       const message = e?.message || '解析失败';
       // 记录失败详情：展示原始文件信息 + 提供手动配置规则入口
@@ -234,8 +224,35 @@ export default function Home() {
     }
   };
 
-  // —— 规则编辑器流程：新建 / 编辑 / 复制 / AI 确认 共用一个模态 ——
+  /** 预览阶段查库预检：把"与已入库数据重复"的行标红（_duplicateWithBatch） */
+  const precheckDuplicates = async (current: OrderRow[]) => {
+    const keys = current
+      .filter((r) => String(r.外部编码 || '').trim())
+      .map((r) => ({ 外部编码: String(r.外部编码 || '').trim(), SKU物品编码: String(r.SKU物品编码 || '') }));
+    if (keys.length === 0) return;
+    try {
+      const r = await fetch('/api/orders/check-dup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keys }),
+      });
+      const d = await r.json();
+      if (!r.ok) return;
+      const dupKeys = new Set<string>((d.duplicates || []).map((s: any) => `${s.外部编码} ${s.SKU物品编码}`));
+      if (dupKeys.size === 0) return;
+      setRows((prev) =>
+        prev.map((row) => {
+          const code = String(row.外部编码 || '').trim();
+          const hit = !!code && dupKeys.has(`${code} ${row.SKU物品编码 || ''}`);
+          return hit ? { ...row, _duplicateWithBatch: true } : row;
+        })
+      );
+      const n = dupKeys.size;
+      toast(`检测到 ${n} 行与已入库数据重复，已在表格中标红（提交时将自动跳过）`, 'warning');
+    } catch { /* 预检失败静默，不影响主流程 */ }
+  };
 
+  // —— 规则编辑器流程：新建 / 编辑 / 复制 / AI 确认 共用一个模态 ——
   /** 打开 AI 推荐规则进行微调确认（替代旧的直接保存） */
   const openAiRuleEditor = () => {
     if (aiRule) setEditorRule(structuredClone(aiRule) as EditorRule);
@@ -394,7 +411,6 @@ export default function Home() {
         if (r._id !== id) return r;
         const updated: OrderRow = { ...r };
         if (key === 'SKU发货数量') updated.SKU发货数量 = Number(value) || 0;
-        else if (key === '重量') updated.重量 = value.trim() === '' ? undefined : Number(value);
         else (updated as any)[key] = value;
         return updated;
       });
@@ -412,7 +428,7 @@ export default function Home() {
       const blank: OrderRow = {
         _id: `row_new_${prev.length}_${prev.reduce((s, r) => s + (r._id?.length || 0), 0)}`,
         外部编码: '', 收货门店: '', 收件人姓名: '', 收件人电话: '', 收件人地址: '',
-        SKU物品编码: '', SKU物品名称: '', SKU发货数量: 0, SKU规格型号: '', 重量: undefined, 温层: '', 备注: '',
+        SKU物品编码: '', SKU物品名称: '', SKU发货数量: 0, SKU规格型号: '', 备注: '',
       };
       return validateAll([...prev, blank]);
     });

@@ -20,7 +20,16 @@
       "mcp__plugin_chrome-devtools-mcp_chrome-devtools__new_page",
       "mcp__plugin_chrome-devtools-mcp_chrome-devtools__take_screenshot",
       "mcp__plugin_chrome-devtools-mcp_chrome-devtools__evaluate_script",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(pkill -f \"next-server\")",
+      "Bash(node scripts-migrate.mjs)",
+      "Bash(node mig2.mjs)",
+      "Bash(grep -v \"SECURITY WARNING\\\\|next major\\\\|To prepare\\\\|explicitly\\\\|libpq\\\\|See https\\\\|trace-warnings\\\\|^$\")",
+      "Bash(node /tmp/bench.mjs)",
+      "Bash(grep -v \"SECURITY\\\\|major\\\\|prepare\\\\|explicitly\\\\|libpq\\\\|See https\\\\|trace-warn\\\\|^$\")",
+      "Bash(rm -f /tmp/bench.mjs)",
+      "Bash(node bench.mjs)"
     ]
   }
 }

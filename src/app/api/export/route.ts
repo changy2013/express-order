@@ -18,8 +18,6 @@ const COLUMNS: { header: string; key: keyof OrderRow; width: number }[] = [
   { header: 'SKU物品名称', key: 'SKU物品名称', width: 30 },
   { header: 'SKU发货数量', key: 'SKU发货数量', width: 12 },
   { header: 'SKU规格型号', key: 'SKU规格型号', width: 18 },
-  { header: '重量(kg)', key: '重量', width: 12 },
-  { header: '温层', key: '温层', width: 10 },
   { header: '备注', key: '备注', width: 20 },
 ];
 
@@ -52,8 +50,6 @@ export async function POST(req: NextRequest) {
         SKU物品名称: row.SKU物品名称 || '',
         SKU发货数量: Number(row.SKU发货数量) || 0,
         SKU规格型号: row.SKU规格型号 || '',
-        重量: row.重量 != null ? Number(row.重量) : '',
-        温层: row.温层 || '',
         备注: row.备注 || '',
       });
     }

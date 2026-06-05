@@ -14,13 +14,7 @@ export type TargetField =
   | 'SKU物品名称'
   | 'SKU发货数量'
   | 'SKU规格型号'
-  | '重量'
-  | '温层'
   | '备注';
-
-/** 温层允许值（冷链：常温/冷藏/冷冻/恒温） */
-export const TEMP_ZONES = ['常温', '冷藏', '冷冻', '恒温'] as const;
-export type TempZone = (typeof TEMP_ZONES)[number];
 
 /** 字段映射：描述如何获取某个目标字段的值 */
 export interface FieldMapping {
@@ -105,6 +99,18 @@ export interface ExcelRuleConfig {
     /** 卡片内物品子表头行（相对卡片起始的偏移，0-indexed） */
     itemTableHeaderOffset: number;
     itemFieldMappings: FieldMapping[];
+    /**
+     * 可选：为每张卡片自动派生外部编码。
+     * 文档级单号（如"调拨单号：DB20260530001"）+ 卡片序号 → 每卡片唯一外部编码。
+     * 如 DB20260530001-1 / -2 / -3。仅当卡片本身未提取到外部编码时生效。
+     */
+    externalCodeGen?: {
+      /** 从文档（卡片区之前的行）提取单号的正则，捕获组 group（默认1）为单号值 */
+      docNumberPattern: string;
+      group?: number;
+      /** 单号与卡片序号之间的连接符，默认 '-' */
+      separator?: string;
+    };
   };
 
   /** weekly 模式：日期列横向展开（周配送计划） */

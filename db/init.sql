@@ -38,8 +38,6 @@ CREATE TABLE IF NOT EXISTS outbound_orders (
   sku_name VARCHAR(255) NOT NULL,    -- SKU物品名称
   sku_quantity INTEGER NOT NULL DEFAULT 1, -- SKU发货数量
   sku_spec VARCHAR(255),             -- SKU规格型号
-  weight NUMERIC(12,3),              -- 重量(kg)
-  temperature_zone VARCHAR(20),      -- 温层(常温/冷藏/冷冻/恒温)
   remark TEXT,                       -- 备注
   status VARCHAR(50) NOT NULL DEFAULT 'draft',
   created_at TIMESTAMPTZ DEFAULT NOW()
@@ -52,16 +50,16 @@ CREATE INDEX IF NOT EXISTS idx_import_batches_created_at ON import_batches(creat
 CREATE INDEX IF NOT EXISTS idx_import_batches_rule_id ON import_batches(rule_id);
 CREATE INDEX IF NOT EXISTS idx_outbound_orders_batch_id ON outbound_orders(batch_id);
 CREATE INDEX IF NOT EXISTS idx_outbound_orders_external_code ON outbound_orders(external_code);
--- 外部编码 + SKU编码 联合唯一（仅对非空外部编码生效）：
--- 同一外部编码可有多条不同 SKU 明细，但 (外部编码, SKU编码) 不可重复；DB 层拦截重复入库
-CREATE UNIQUE INDEX IF NOT EXISTS uq_outbound_orders_extcode_sku
-  ON outbound_orders(external_code, sku_code)
-  WHERE external_code IS NOT NULL AND external_code <> '';
+-- 外部编码 + SKU编码 联合普通索引（用于查重检索）：
+-- 重复检测改由应用层（预览预检 + 提交时查库）完成，不再用 DB 唯一约束拦截。
+-- 外部编码允许为空；联合普通索引加速 (external_code, sku_code) 查重。
+CREATE INDEX IF NOT EXISTS idx_outbound_orders_extcode_sku ON outbound_orders(external_code, sku_code);
 CREATE INDEX IF NOT EXISTS idx_outbound_orders_store_name ON outbound_orders(store_name);
 CREATE INDEX IF NOT EXISTS idx_outbound_orders_created_at ON outbound_orders(created_at DESC);
 
 -- ============================================================
 -- 迁移：为已存在的数据库补列（IF NOT EXISTS 幂等，可重复执行）
 -- ============================================================
-ALTER TABLE outbound_orders ADD COLUMN IF NOT EXISTS weight NUMERIC(12,3);
-ALTER TABLE outbound_orders ADD COLUMN IF NOT EXISTS temperature_zone VARCHAR(20);
+-- 去掉旧的唯一约束（重复检测改为应用层），并补上联合普通索引
+DROP INDEX IF EXISTS uq_outbound_orders_extcode_sku;
+CREATE INDEX IF NOT EXISTS idx_outbound_orders_extcode_sku ON outbound_orders(external_code, sku_code);

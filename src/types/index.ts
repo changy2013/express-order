@@ -1,5 +1,4 @@
 export type { ParseRule, AIRecommendedRule, FieldMapping, ExcelRuleConfig, WordRuleConfig, PDFRuleConfig, TargetField } from './rule';
-export { TEMP_ZONES, type TempZone } from './rule';
 
 /** 出库单行（解析结果 + 校验状态） */
 export interface OrderRow {
@@ -12,8 +11,6 @@ export interface OrderRow {
   SKU物品名称: string;
   SKU发货数量: number;
   SKU规格型号?: string;
-  重量?: number;
-  温层?: string;
   备注?: string;
   // 内部字段
   _id?: string;

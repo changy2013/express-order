@@ -11,7 +11,7 @@ import { RuleEditorModal, type EditorRule } from './RuleEditorModal';
 export type Step = 'upload' | 'rule' | 'preview';
 export type TargetKey =
   | '外部编码' | '收货门店' | '收件人姓名' | '收件人电话' | '收件人地址'
-  | 'SKU物品编码' | 'SKU物品名称' | 'SKU发货数量' | 'SKU规格型号' | '重量' | '温层' | '备注';
+  | 'SKU物品编码' | 'SKU物品名称' | 'SKU发货数量' | 'SKU规格型号' | '备注';
 
 export interface ViewState {
   step: Step;

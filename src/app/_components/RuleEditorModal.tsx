@@ -6,7 +6,7 @@ import { MappingRows, getMappings, setMappings } from './RuleEditorMappings';
 
 const TARGET_FIELDS: TargetField[] = [
   '外部编码', '收货门店', '收件人姓名', '收件人电话', '收件人地址',
-  'SKU物品编码', 'SKU物品名称', 'SKU发货数量', 'SKU规格型号', '重量', '温层', '备注',
+  'SKU物品编码', 'SKU物品名称', 'SKU发货数量', 'SKU规格型号', '备注',
 ];
 
 /**
