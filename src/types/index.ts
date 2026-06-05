@@ -1,5 +1,25 @@
 export type { ParseRule, AIRecommendedRule, FieldMapping, ExcelRuleConfig, WordRuleConfig, PDFRuleConfig, TargetField } from './rule';
 
+/** 快递运单（页面使用） */
+export interface Order {
+  id?: string;
+  batch_id?: string;
+  order_no: string;
+  sender_name: string;
+  sender_phone: string;
+  sender_address: string;
+  receiver_name: string;
+  receiver_phone: string;
+  receiver_address: string;
+  goods_name: string;
+  quantity: number;
+  weight: number;
+  volume: number;
+  remark?: string;
+  status: string;
+  created_at?: string;
+}
+
 /** 出库单行（解析结果 + 校验状态） */
 export interface OrderRow {
   外部编码?: string;
