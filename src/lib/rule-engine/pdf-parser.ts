@@ -2,8 +2,8 @@
  * 规则引擎 - PDF 解析器
  * 支持 table / text / multi 模式
  */
-import { PDFParse } from 'pdf-parse';
-import type { PDFRuleConfig, TargetField, FieldMapping } from '@/types/rule';
+import { extractPdfText } from '../pdf-text';
+import type { PDFRuleConfig, TargetField } from '@/types/rule';
 import type { OrderRow } from '@/types';
 import { applyTransform } from './transforms';
 
@@ -13,9 +13,12 @@ export async function parsePdfWithRule(
   staticValues: Partial<Record<TargetField, string>> = {},
   defaultValues: Partial<Record<TargetField, string>> = {}
 ): Promise<OrderRow[]> {
-  const parser = new PDFParse({ data: buffer });
-  const data = await parser.getText();
-  const text = data.text || '';
+  const text = await extractPdfText(buffer);
+
+  // 行级智能提取优先（适配脏 PDF：表头在下方、编码名称粘连、制表符不规整）
+  if (config.lineExtract?.enabled) {
+    return extractByLine(text, config, staticValues, defaultValues);
+  }
 
   switch (config.mode) {
     case 'multi':
@@ -25,6 +28,75 @@ export async function parsePdfWithRule(
     default: // 'table'
       return parsePdfTable(text, config, staticValues, defaultValues);
   }
+}
+
+/**
+ * 行级智能提取：逐行用 skuCodePattern 识别数据行，从行内自动抽取 编码/名称/数量。
+ * 不依赖列索引和表头位置，对脏 PDF 鲁棒。
+ */
+function extractByLine(
+  text: string,
+  config: PDFRuleConfig,
+  staticValues: Partial<Record<TargetField, string>>,
+  defaultValues: Partial<Record<TargetField, string>>
+): OrderRow[] {
+  const le = config.lineExtract!;
+  const footerValues = extractPdfFooter(text, config);
+  const baseValues = { ...defaultValues, ...staticValues, ...footerValues };
+  const skipPatterns = config.skipRowPatterns || [];
+  const codeRe = new RegExp(le.skuCodePattern || '[A-Z]{2,}[0-9]{3,}');
+  const unitWords = le.unitWords && le.unitWords.length
+    ? le.unitWords
+    : ['件', '包', '桶', '瓶', '个', '袋', '盒', '箱', '顶', '条', '套', '只', '块', '张'];
+
+  const lines = text.split('\n');
+  const result: OrderRow[] = [];
+
+  for (const raw of lines) {
+    const line = raw.replace(/\t/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!line) continue;
+    if (skipPatterns.some(kw => line.includes(kw))) continue;
+
+    const codeMatch = line.match(codeRe);
+    if (!codeMatch) continue;
+    const code = codeMatch[0];
+
+    // 数量：单位词后的数字，或行内最后一个独立数字
+    let qty = 0;
+    if (le.qtyFrom === 'after_unit' || !le.qtyFrom) {
+      const unitRe = new RegExp(`(?:${unitWords.join('|')})\\s*([0-9]+(?:\\.[0-9]+)?)`);
+      const um = line.match(unitRe);
+      if (um) qty = Number(um[1]);
+    }
+    if (!qty) {
+      const nums = line.match(/[0-9]+(?:\.[0-9]+)?/g);
+      if (nums && nums.length) qty = Number(nums[nums.length - 1]);
+    }
+
+    // 名称：编码之后、单位词/数量之前的中文片段
+    let name = '';
+    const afterCode = line.slice(line.indexOf(code) + code.length);
+    // 去掉规格（如 1kg*10袋/件）、单位、数量，保留主名称
+    const nameMatch = afterCode.match(/^[\s:：]*([一-龥A-Za-z0-9（）()]+(?:[一-龥A-Za-z（）()]+)*)/);
+    if (nameMatch) name = nameMatch[1].trim();
+    // 规格：名称后第一个含 数字+单位/乘号 的片段
+    let spec = '';
+    const specMatch = afterCode.match(/([0-9]+(?:\.[0-9]+)?\s*[a-zA-Z]+(?:\s*[*×][0-9]+[一-龥a-zA-Z]+)?(?:\/[一-龥a-zA-Z]+)?)/);
+    if (specMatch) spec = specMatch[1].trim();
+
+    if (!code && !name) continue;
+    if (!(qty > 0)) continue;
+
+    result.push(buildFromValues({
+      ...baseValues,
+      SKU物品编码: code,
+      SKU物品名称: name || code,
+      SKU发货数量: String(qty),
+      ...(spec ? { SKU规格型号: spec } : {}),
+    }));
+  }
+
+  return result;
 }
 
 /** multi 模式：一个 PDF 内含多个独立订单，用分隔符区分 */
@@ -203,8 +275,11 @@ function extractOrdersFromPdfText(
   return result;
 }
 
-/** 拆分 PDF 行（按多空格分隔） */
+/** 拆分 PDF 行：优先按制表符分列（pdf-parse 用 \t 分隔单元格），否则按 2+ 空格 */
 function splitPdfLine(line: string): string[] {
+  if (line.includes('\t')) {
+    return line.split('\t').map(s => s.trim()).filter(s => s !== '');
+  }
   return line.split(/\s{2,}/).map(s => s.trim()).filter(Boolean);
 }
 

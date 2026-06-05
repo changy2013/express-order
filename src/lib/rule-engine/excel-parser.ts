@@ -134,11 +134,19 @@ function parseMatrix(
 
   // 获取门店名列表（从 storeHeaderRow 的 storeStartCol 开始）
   const storeHeaderRowData = rawRows[mc.storeHeaderRow] || [];
+  const storeEndCol = mc.storeEndCol !== undefined ? mc.storeEndCol : storeHeaderRowData.length - 1;
+  // 默认跳过明显的汇总/库存类列
+  const skipKw = mc.storeSkipKeywords && mc.storeSkipKeywords.length
+    ? mc.storeSkipKeywords
+    : ['结余', '合计', '小计', '汇总', '总和', '库存', '数量', '可用', '冻结', '分配', '待'];
   const storeNames: string[] = [];
-  for (let c = mc.storeStartCol; c < storeHeaderRowData.length; c++) {
+  for (let c = mc.storeStartCol; c <= storeEndCol && c < storeHeaderRowData.length; c++) {
     const storeName = String(storeHeaderRowData[c] || '').trim();
-    if (storeName) storeNames.push(storeName);
-    else storeNames.push(''); // 保留位置
+    if (storeName && skipKw.some((kw) => storeName.includes(kw))) {
+      storeNames.push(''); // 命中汇总关键词，占位但不解析
+    } else {
+      storeNames.push(storeName);
+    }
   }
 
   // 确定数据结束行

@@ -81,7 +81,10 @@ export interface ExcelRuleConfig {
     skuNameCol: number;    // SKU名称列索引
     skuSpecCol?: number;   // SKU规格列索引
     storeStartCol: number; // 门店列起始索引（该列及其右侧均为门店列，列头为门店名）
+    storeEndCol?: number;  // 门店列结束索引（含）；不设则到最后一列。用于排除右侧汇总列
     storeHeaderRow: number;// 门店名所在行索引
+    /** 门店列名中若含这些关键词则跳过（如"结余""合计""汇总""库存"等汇总列） */
+    storeSkipKeywords?: string[];
   };
 
   /** card 模式：卡片式纵向堆叠布局 */
@@ -142,6 +145,20 @@ export interface PDFRuleConfig {
   skipRowPatterns?: string[];
   /** 字段映射 */
   fieldMappings?: FieldMapping[];
+  /**
+   * 行级智能提取：当 PDF 制表符列不规整、表头在数据下方、编码与名称粘连时使用。
+   * 引擎逐行用 skuCodePattern 识别数据行，自动抽取 编码/名称/数量，不依赖列索引和表头位置。
+   * 强烈推荐用于扫描件/导出件等脏 PDF。
+   */
+  lineExtract?: {
+    enabled: boolean;
+    /** SKU 编码正则（默认 [A-Z]{2,}[0-9]{3,}），命中则该行视为数据行 */
+    skuCodePattern?: string;
+    /** 数量取值方式：'last_number'=行内最后一个独立数字（默认）；'after_unit'=单位词后的数字 */
+    qtyFrom?: 'last_number' | 'after_unit';
+    /** 单位词列表（qtyFrom=after_unit 时用），如 ["件","包","桶","瓶","个"] */
+    unitWords?: string[];
+  };
 }
 
 /** 完整解析规则 */

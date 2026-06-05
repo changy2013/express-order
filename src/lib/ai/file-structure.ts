@@ -5,7 +5,7 @@
  */
 import * as XLSX from 'xlsx';
 import mammoth from 'mammoth';
-import { PDFParse } from 'pdf-parse';
+import { extractPdfText } from '../pdf-text';
 
 export interface FileStructure {
   fileType: 'excel' | 'word' | 'pdf';
@@ -118,9 +118,7 @@ function extractHtmlTableRows(html: string): string[][] {
 
 /** PDF：提取文本前 80 行，保留 \t 制表符（列分隔提示） */
 async function extractPdfStructure(buffer: Buffer): Promise<string> {
-  const parser = new PDFParse({ data: buffer });
-  const data = await parser.getText();
-  const text = data.text || '';
+  const text = await extractPdfText(buffer);
   const parts: string[] = [];
   parts.push('【文件类型】PDF');
   parts.push('【说明】下方每行保留 \\t 制表符作为列分隔提示，行内可能有 SKU 编码+名称粘连或跨行折断');
@@ -128,6 +126,6 @@ async function extractPdfStructure(buffer: Buffer): Promise<string> {
   text
     .split('\n')
     .slice(0, 80)
-    .forEach((l, i) => parts.push(`L${i}: ${JSON.stringify(l.slice(0, 90))}`));
+    .forEach((l: string, i: number) => parts.push(`L${i}: ${JSON.stringify(l.slice(0, 90))}`));
   return parts.join('\n');
 }
