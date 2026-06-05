@@ -1,16 +1,17 @@
 'use client';
 
 import type { RefObject } from 'react';
-import type { OrderRow, ParseRule, AIRecommendedRule, ImportBatch, ToastMessage } from '@/types';
+import type { OrderRow, ParseRule, AIRecommendedRule, ImportBatch, ToastMessage, SubmitResult } from '@/types';
 import { UploadStep } from './UploadStep';
 import { RuleStep } from './RuleStep';
 import { PreviewStep } from './PreviewStep';
 import { SettingsModal } from './SettingsModal';
+import { RuleEditorModal, type EditorRule } from './RuleEditorModal';
 
 export type Step = 'upload' | 'rule' | 'preview';
 export type TargetKey =
   | '外部编码' | '收货门店' | '收件人姓名' | '收件人电话' | '收件人地址'
-  | 'SKU物品编码' | 'SKU物品名称' | 'SKU发货数量' | 'SKU规格型号' | '备注';
+  | 'SKU物品编码' | 'SKU物品名称' | 'SKU发货数量' | 'SKU规格型号' | '重量' | '温层' | '备注';
 
 export interface ViewState {
   step: Step;
@@ -30,6 +31,11 @@ export interface ViewState {
   toasts: ToastMessage[];
   errorCount: number;
   dupCount: number;
+  editorRule: EditorRule | null;
+  progress: { active: boolean; percent: number; label: string; current: number; total: number };
+  parseError: { message: string; fileName: string; fileSize: number } | null;
+  submitProgress: { active: boolean; percent: number; label: string };
+  submitResult: SubmitResult | null;
 }
 
 export interface ViewActions {
@@ -41,14 +47,23 @@ export interface ViewActions {
   onPickFile: (f: File | null) => void;
   runAiAnalyze: () => void;
   runParse: () => void;
-  saveAiRule: () => void;
   submitOrders: () => void;
   exportExcel: () => void;
   resetAll: () => void;
   updateCell: (id: string, key: TargetKey, value: string) => void;
   deleteRow: (id: string) => void;
+  addRow: () => void;
   toast: (m: string, t?: ToastMessage['type']) => void;
   loadRules: () => void;
+  openAiRuleEditor: () => void;
+  newRule: () => void;
+  editRule: (r: ParseRule) => void;
+  copyRule: (r: ParseRule) => void;
+  deleteRule: (id: string) => void;
+  closeRuleEditor: () => void;
+  onRuleSaved: (saved: ParseRule) => void;
+  dismissParseError: () => void;
+  dismissSubmitResult: () => void;
 }
 
 const STEPS: { key: Step; label: string }[] = [
@@ -69,13 +84,10 @@ export function PageView({
   return (
     <div className="app-container">
       <header className="header">
-        <div className="logo-section">
-          <div className="logo-badge"><span className="logo-icon">鲸</span></div>
-          <div>
-            <div className="logo-text">鲸天智能订单解析导入系统</div>
-            <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-              AI 驱动 · 任意格式批量下单
-            </div>
+        <div>
+          <div className="logo-text">智能订单解析导入</div>
+          <div style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
+            AI 驱动 · 任意格式批量下单
           </div>
         </div>
         <div className="header-actions">
@@ -111,6 +123,85 @@ export function PageView({
 
       {state.showSettings && <SettingsModal state={state} actions={actions} />}
 
+      {state.editorRule && (
+        <RuleEditorModal
+          rule={state.editorRule}
+          file={state.file}
+          onClose={actions.closeRuleEditor}
+          onSaved={actions.onRuleSaved}
+          toast={actions.toast}
+        />
+      )}
+
+      {state.progress.active && (
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 420 }}>
+            <div className="modal-body" style={{ padding: 28, alignItems: 'center', gap: 18 }}>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>{state.progress.label || '解析中…'}</div>
+              <div style={{ width: '100%', height: 10, background: 'var(--color-bg-base)', borderRadius: 999, overflow: 'hidden', border: '1px solid var(--color-border-light)' }}>
+                <div style={{
+                  width: `${Math.min(100, Math.round(state.progress.percent))}%`, height: '100%',
+                  background: 'linear-gradient(90deg, var(--color-primary), #00e0db)',
+                  borderRadius: 999, transition: 'width 0.2s ease',
+                }} />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: 13, color: 'var(--color-text-secondary)' }}>
+                <span>{Math.min(100, Math.round(state.progress.percent))}%</span>
+                <span>{state.progress.total > 0 ? `${state.progress.current} / ${state.progress.total} 条` : '正在处理…'}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 提交进度条 */}
+      {state.submitProgress.active && (
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 420 }}>
+            <div className="modal-body" style={{ padding: 28, alignItems: 'center', gap: 18 }}>
+              <div style={{ fontWeight: 600, fontSize: 15 }}>{state.submitProgress.label || '提交中…'}</div>
+              <div style={{ width: '100%', height: 10, background: 'var(--color-bg-base)', borderRadius: 999, overflow: 'hidden', border: '1px solid var(--color-border-light)' }}>
+                <div style={{
+                  width: `${Math.min(100, Math.round(state.submitProgress.percent))}%`, height: '100%',
+                  background: 'linear-gradient(90deg, var(--color-primary), #00e0db)',
+                  borderRadius: 999, transition: 'width 0.2s ease',
+                }} />
+              </div>
+              <div style={{ width: '100%', textAlign: 'right', fontSize: 13, color: 'var(--color-text-secondary)' }}>
+                {Math.min(100, Math.round(state.submitProgress.percent))}%
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 提交结果汇总 */}
+      {state.submitResult && !state.submitProgress.active && (
+        <div className="modal-overlay" onClick={actions.dismissSubmitResult}>
+          <div className="modal" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <div className="modal-title">
+                {state.submitResult.success === state.submitResult.total ? '✅ 提交完成' : '⚠️ 提交完成（部分未入库）'}
+              </div>
+            </div>
+            <div className="modal-body" style={{ padding: 24, gap: 16 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
+                <SummaryStat label="成功入库" value={state.submitResult.success} color="var(--color-success)" />
+                <SummaryStat label="重复跳过" value={state.submitResult.skipped} color="var(--color-warning)" />
+                <SummaryStat label="失败" value={state.submitResult.failed} color="var(--color-error)" />
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', textAlign: 'center' }}>
+                本次提交 {state.submitResult.total} 条
+                {state.submitResult.skipped > 0 && '，重复行已在表格中标红保留'}
+              </div>
+            </div>
+            <div className="modal-footer" style={{ justifyContent: 'flex-end' }}>
+              <button className="btn btn-primary" onClick={actions.dismissSubmitResult}>知道了</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toasts */}
       <div style={{ position: 'fixed', top: 80, right: 24, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 8 }}>
         {state.toasts.map((t) => (
@@ -120,6 +211,19 @@ export function PageView({
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function SummaryStat({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+      padding: '14px 8px', borderRadius: 'var(--radius-md)',
+      background: 'var(--color-bg-base)', border: '1px solid var(--color-border-light)',
+    }}>
+      <div style={{ fontSize: 26, fontWeight: 700, color }}>{value}</div>
+      <div style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>{label}</div>
     </div>
   );
 }

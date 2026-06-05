@@ -185,14 +185,14 @@ function parseMatrix(
       const qty = Number(qtyRaw);
       if (!qty || qty <= 0) continue; // 数量为 0 或空则跳过
 
-      const orderRow: OrderRow = {
+      const orderRow: OrderRow = finalizeRow({
         ...buildStaticAndDefault(staticValues, defaultValues),
         收货门店: storeName,
         SKU物品编码: skuCode,
         SKU物品名称: skuName,
         SKU发货数量: qty,
         ...(skuSpec ? { SKU规格型号: skuSpec } : {}),
-      };
+      });
       result.push(orderRow);
     }
   }
@@ -278,11 +278,11 @@ function parseCard(
       const itemRow = buildOrderRow(row, cc.itemFieldMappings, itemHeaderData, {}, {}, {});
       if (!itemRow.SKU物品编码 && !itemRow.SKU物品名称) continue;
 
-      const finalRow: OrderRow = {
+      const finalRow: OrderRow = finalizeRow({
         ...buildStaticAndDefault(staticValues, defaultValues),
         ...cardHeader,
         ...itemRow,
-      };
+      });
       result.push(finalRow);
     }
   }
@@ -335,26 +335,26 @@ function parseWeekly(
         // 匹配 "物品名 x数量" 或 "物品名*数量" 或 "物品名 数量"
         const m = entry.match(/^(.+?)[×xX\*]\s*(\d+)\s*$/);
         if (m) {
-          result.push({
+          result.push(finalizeRow({
             ...buildStaticAndDefault(staticValues, defaultValues),
             收货门店: storeName,
             SKU物品名称: m[1].trim(),
             SKU物品编码: '',
             SKU发货数量: parseInt(m[2]) || 1,
             备注: dates[di] || '',
-          });
+          }));
         } else if (/\d/.test(entry)) {
           // 尝试最后一个数字作为数量
           const numMatch = entry.match(/(.+?)\s+(\d+)\s*$/);
           if (numMatch) {
-            result.push({
+            result.push(finalizeRow({
               ...buildStaticAndDefault(staticValues, defaultValues),
               收货门店: storeName,
               SKU物品名称: numMatch[1].trim(),
               SKU物品编码: '',
               SKU发货数量: parseInt(numMatch[2]) || 1,
               备注: dates[di] || '',
-            });
+            }));
           }
         }
       }
@@ -418,12 +418,19 @@ function buildOrderRow(
   }
 
   // 确保必填字段存在（即使为空字符串）
-  return {
+  return finalizeRow({
     SKU物品编码: String((result as any)['SKU物品编码'] ?? ''),
     SKU物品名称: String((result as any)['SKU物品名称'] ?? ''),
     SKU发货数量: Number((result as any)['SKU发货数量']) || 0,
     ...result,
-  } as OrderRow;
+  });
+}
+
+/** 收尾：把引擎内部的字符串值转成 OrderRow 的强类型（目前 重量 需 string→number；空值→undefined） */
+function finalizeRow(r: Record<string, unknown>): OrderRow {
+  const w = r['重量'];
+  const weight = (w === undefined || w === null || String(w).trim() === '') ? undefined : Number(w);
+  return { ...r, 重量: weight } as OrderRow;
 }
 
 /** 构建静态值和默认值的基础对象 */

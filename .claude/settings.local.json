@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(node -e \"const p=require\\('react-window/package.json'\\); console.log\\('version:', p.version\\)\")",
+      "Bash(node -e \"const m=require\\('react-window'\\); console.log\\('exports:', Object.keys\\(m\\).join\\(', '\\)\\)\")",
+      "Bash(grep -iA8 \"node\")",
+      "Bash(node -e \"console.log\\(typeof DOMMatrix\\)\")",
+      "Bash(cd *)",
+      "Bash(node -e \"console.log\\('installed version:', require\\('@napi-rs/canvas/package.json'\\).version\\)\")",
+      "Bash(npm install *)",
+      "Bash(git add *)",
+      "Bash(git push *)",
+      "Bash(npx vercel *)",
+      "Bash(curl -s -X POST __TRACKED_VAR__/api/ai-analyze -F file=@public/samples/黔寨寨贵州烙锅（鞍山店）常温.pdf --max-time 90)",
+      "Bash(node -e \"let j;try{j=require\\('/tmp/online_pdf.json'\\)}catch\\(e\\){console.log\\('bad json'\\);process.exit\\(\\)};if\\(j.error\\){console.log\\('AI ERROR:',j.error\\)}else{console.log\\('AI OK: mode='+j.rule.pdfConfig?.mode+' lineExtract='+j.rule.pdfConfig?.lineExtract?.enabled+' conf='+j.rule.aiAnalysis.confidence\\)}\")",
+      "Bash(npx next *)",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__list_pages",
+      "Bash(kill 24919)",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__new_page",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__take_screenshot",
+      "mcp__plugin_chrome-devtools-mcp_chrome-devtools__evaluate_script",
+      "Bash(npm run *)"
+    ]
+  }
+}

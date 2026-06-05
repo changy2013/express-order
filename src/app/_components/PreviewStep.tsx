@@ -1,7 +1,9 @@
 'use client';
 
-import { List, type RowComponentProps } from 'react-window';
+import { useMemo, useRef } from 'react';
+import { List, type RowComponentProps, type ListImperativeAPI } from 'react-window';
 import type { OrderRow } from '@/types';
+import { TEMP_ZONES } from '@/types';
 import type { ViewState, ViewActions, TargetKey } from './PageView';
 
 const COLUMNS: { key: TargetKey; label: string; width: number; required?: boolean }[] = [
@@ -14,6 +16,8 @@ const COLUMNS: { key: TargetKey; label: string; width: number; required?: boolea
   { key: 'SKU物品名称', label: 'SKU名称', width: 220, required: true },
   { key: 'SKU发货数量', label: '数量', width: 80, required: true },
   { key: 'SKU规格型号', label: '规格型号', width: 140 },
+  { key: '重量', label: '重量(kg)', width: 90 },
+  { key: '温层', label: '温层', width: 110 },
   { key: '备注', label: '备注', width: 140 },
 ];
 
@@ -29,27 +33,66 @@ interface RowData {
 
 function RowRenderer({ index, style, rows, updateCell, deleteRow }: RowComponentProps<RowData>) {
   const row = rows[index];
-  const hasError = !!(row._errors && row._errors.length);
-  const bg = hasError ? 'var(--color-error-bg)' : row._isDuplicate ? 'var(--color-warning-bg)' : index % 2 ? 'var(--color-bg-base)' : 'transparent';
+  const errFields = new Set((row._errors || []).map((e) => e.field));
+  const hasError = errFields.size > 0;
+  // 行底色优先级：错误 > 与已入库重复 > 同批次重复 > 斑马纹
+  const bg = hasError
+    ? 'var(--color-error-bg)'
+    : row._duplicateWithBatch
+      ? 'rgba(255,77,79,0.08)'
+      : row._isDuplicate
+        ? 'var(--color-warning-bg)'
+        : index % 2 ? 'var(--color-bg-base)' : 'transparent';
 
   return (
     <div style={{ ...style, display: 'flex', width: INNER_WIDTH, background: bg, borderBottom: '1px solid var(--color-border)' }}>
-      {COLUMNS.map((c) => (
-        <div key={c.key} style={{ width: c.width, padding: '0 4px', display: 'flex', alignItems: 'center' }}>
-          <input
-            value={c.key === 'SKU发货数量' ? String(row.SKU发货数量 ?? '') : ((row[c.key] as string) ?? '')}
-            onChange={(e) => updateCell(row._id!, c.key, e.target.value)}
-            type={c.key === 'SKU发货数量' ? 'number' : 'text'}
-            style={{
-              width: '100%', height: 30, border: '1px solid transparent', borderRadius: 4,
-              padding: '0 6px', fontSize: 13, background: 'transparent', color: 'var(--color-text-main)',
-              outline: 'none',
-            }}
-            onFocus={(e) => { e.target.style.border = '1px solid var(--color-primary)'; e.target.style.background = '#fff'; }}
-            onBlur={(e) => { e.target.style.border = '1px solid transparent'; e.target.style.background = 'transparent'; }}
-          />
-        </div>
-      ))}
+      {COLUMNS.map((c) => {
+        const cellErr = errFields.has(c.key);
+        const isZone = c.key === '温层';
+        const val = c.key === 'SKU发货数量'
+          ? String(row.SKU发货数量 ?? '')
+          : c.key === '重量'
+            ? (row.重量 != null ? String(row.重量) : '')
+            : ((row[c.key] as string) ?? '');
+        return (
+          <div key={c.key} style={{ width: c.width, padding: '0 4px', display: 'flex', alignItems: 'center' }}>
+            {isZone ? (
+              <select
+                value={val}
+                onChange={(e) => updateCell(row._id!, c.key, e.target.value)}
+                style={{
+                  width: '100%', height: 30, borderRadius: 4, padding: '0 4px', fontSize: 13,
+                  color: 'var(--color-text-main)', outline: 'none',
+                  border: cellErr ? '1px solid var(--color-error)' : '1px solid transparent',
+                  background: cellErr ? 'var(--color-error-bg)' : 'transparent',
+                }}
+              >
+                <option value="">—</option>
+                {TEMP_ZONES.map((z) => <option key={z} value={z}>{z}</option>)}
+              </select>
+            ) : (
+              <input
+                value={val}
+                onChange={(e) => updateCell(row._id!, c.key, e.target.value)}
+                type={c.key === 'SKU发货数量' || c.key === '重量' ? 'number' : 'text'}
+                title={cellErr ? (row._errors || []).find((e) => e.field === c.key)?.message : undefined}
+                style={{
+                  width: '100%', height: 30, borderRadius: 4, padding: '0 6px', fontSize: 13,
+                  color: cellErr ? 'var(--color-error)' : 'var(--color-text-main)', outline: 'none',
+                  border: cellErr ? '1px solid var(--color-error)' : '1px solid transparent',
+                  background: cellErr ? 'var(--color-error-bg)' : 'transparent',
+                  fontWeight: cellErr ? 600 : 400,
+                }}
+                onFocus={(e) => { e.target.style.border = '1px solid var(--color-primary)'; e.target.style.background = '#fff'; }}
+                onBlur={(e) => {
+                  e.target.style.border = cellErr ? '1px solid var(--color-error)' : '1px solid transparent';
+                  e.target.style.background = cellErr ? 'var(--color-error-bg)' : 'transparent';
+                }}
+              />
+            )}
+          </div>
+        );
+      })}
       <div style={{ width: ACTION_W, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         <button className="btn-icon" title="删除" onClick={() => deleteRow(row._id!)}
           style={{ color: 'var(--color-error)' }}>✕</button>
@@ -61,6 +104,21 @@ function RowRenderer({ index, style, rows, updateCell, deleteRow }: RowComponent
 export function PreviewStep({ state, actions }: { state: ViewState; actions: ViewActions }) {
   const { rows, warnings, errorCount, dupCount, submitting } = state;
   const validCount = rows.length - errorCount;
+  const listRef = useRef<ListImperativeAPI>(null);
+
+  // 全部错误一次性汇总：逐条「第N行 · 字段 · 原因」，点击定位到对应行
+  const errorList = useMemo(() => {
+    const out: { rowNo: number; index: number; field: string; message: string }[] = [];
+    rows.forEach((r, i) => {
+      (r._errors || []).forEach((e) => out.push({ rowNo: i + 1, index: i, field: e.field, message: e.message }));
+    });
+    return out;
+  }, [rows]);
+
+  const dupWithExistingCount = useMemo(() => rows.filter((r) => r._duplicateWithBatch).length, [rows]);
+  const dupInBatchCount = useMemo(() => rows.filter((r) => r._isDuplicate).length, [rows]);
+
+  const jumpToRow = (index: number) => listRef.current?.scrollToRow({ index, align: 'center', behavior: 'smooth' });
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -78,10 +136,59 @@ export function PreviewStep({ state, actions }: { state: ViewState; actions: Vie
         </div>
       )}
 
+      {/* 全部错误一次性展示：行号 + 字段名 + 原因，点击定位 */}
+      {errorList.length > 0 && (
+        <div className="card" style={{ borderColor: 'var(--color-error-border)' }}>
+          <div className="card-header" style={{ background: 'var(--color-error-bg)' }}>
+            <div className="card-title" style={{ color: 'var(--color-error)' }}>
+              校验未通过：共 {errorList.length} 处错误，分布在 {errorCount} 行（点击可定位）
+            </div>
+          </div>
+          <div className="card-body" style={{ maxHeight: 180, overflowY: 'auto', padding: '8px 0' }}>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              {errorList.map((e, i) => (
+                <button key={i} onClick={() => jumpToRow(e.index)}
+                  style={{
+                    display: 'flex', gap: 10, alignItems: 'center', textAlign: 'left',
+                    padding: '6px 16px', border: 'none', background: 'transparent', cursor: 'pointer',
+                    fontSize: 13, color: 'var(--color-text-main)',
+                  }}
+                  onMouseEnter={(ev) => (ev.currentTarget.style.background = 'var(--color-bg-base)')}
+                  onMouseLeave={(ev) => (ev.currentTarget.style.background = 'transparent')}>
+                  <span style={{ color: 'var(--color-error)', fontWeight: 600, minWidth: 56 }}>第 {e.rowNo} 行</span>
+                  <span className="tag tag-error" style={{ fontSize: 12 }}>{e.field}</span>
+                  <span style={{ color: 'var(--color-text-secondary)' }}>{e.message}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 重复检测图例 */}
+      {(dupInBatchCount > 0 || dupWithExistingCount > 0) && (
+        <div style={{ display: 'flex', gap: 16, fontSize: 13, alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ color: 'var(--color-text-secondary)' }}>外部编码重复：</span>
+          {dupInBatchCount > 0 && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 14, height: 14, borderRadius: 3, background: 'var(--color-warning-bg)', border: '1px solid var(--color-warning)' }} />
+              同批次内重复 {dupInBatchCount} 行
+            </span>
+          )}
+          {dupWithExistingCount > 0 && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 14, height: 14, borderRadius: 3, background: 'rgba(255,77,79,0.08)', border: '1px solid var(--color-error)' }} />
+              与已入库数据重复 {dupWithExistingCount} 行（提交时已被数据库跳过）
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="card">
         <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div className="card-title">数据预览（可直接编辑单元格）</div>
           <div style={{ display: 'flex', gap: 10 }}>
+            <button className="btn btn-default" onClick={actions.addRow}>＋ 新增空行</button>
             <button className="btn btn-default" onClick={actions.exportExcel}>⬇ 导出 Excel</button>
             <button className="btn btn-primary" disabled={submitting || validCount === 0} onClick={actions.submitOrders}>
               {submitting ? <><span className="spinner" /> 提交中…</> : `提交入库（${validCount}）`}
@@ -101,9 +208,12 @@ export function PreviewStep({ state, actions }: { state: ViewState; actions: Vie
             </div>
             {/* 虚拟列表 */}
             {rows.length === 0 ? (
-              <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-placeholder)' }}>无数据</div>
+              <div style={{ padding: 40, textAlign: 'center', color: 'var(--color-text-placeholder)' }}>
+                无数据，点「＋ 新增空行」手动录入
+              </div>
             ) : (
               <List
+                listRef={listRef}
                 style={{ height: Math.min(560, rows.length * ROW_HEIGHT + 4), width: INNER_WIDTH }}
                 rowCount={rows.length}
                 rowHeight={ROW_HEIGHT}

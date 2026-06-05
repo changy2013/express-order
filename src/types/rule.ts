@@ -14,7 +14,13 @@ export type TargetField =
   | 'SKU物品名称'
   | 'SKU发货数量'
   | 'SKU规格型号'
+  | '重量'
+  | '温层'
   | '备注';
+
+/** 温层允许值（冷链：常温/冷藏/冷冻/恒温） */
+export const TEMP_ZONES = ['常温', '冷藏', '冷冻', '恒温'] as const;
+export type TempZone = (typeof TEMP_ZONES)[number];
 
 /** 字段映射：描述如何获取某个目标字段的值 */
 export interface FieldMapping {
