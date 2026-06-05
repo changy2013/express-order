@@ -99,6 +99,31 @@ function parseNormal(
     }
   }
 
+  // columnName 若不在表头中，从非数据行（表头区 + 尾部区）按 key-value 提取
+  const kvExtras: Partial<Record<TargetField, string>> = {};
+  for (const mapping of (fieldMappings || [])) {
+    if (mapping.sourceType !== 'columnName' || !mapping.columnName) continue;
+    if (headerRowData.findIndex(h => String(h).trim() === mapping.columnName!.trim()) >= 0) continue;
+    const target = mapping.targetField;
+    if (kvExtras[target]) continue;
+    const scanRows = [
+      ...rawRows.slice(0, dataStartRow),
+      ...rawRows.slice(endRow),
+    ];
+    for (const r of scanRows) {
+      for (let ci = 0; ci < r.length; ci++) {
+        if (String(r[ci] || '').trim() !== mapping.columnName!.trim()) continue;
+        for (let vi = ci + 1; vi < r.length; vi++) {
+          const v = String(r[vi] || '').trim();
+          if (v) { kvExtras[target] = v; break; }
+        }
+        if (kvExtras[target]) break;
+      }
+      if (kvExtras[target]) break;
+    }
+  }
+  const mergedExtras = { ...footerValues, ...kvExtras };
+
   const rawResultRows: OrderRow[] = [];
 
   for (let i = dataStartRow; i < endRow; i++) {
@@ -109,7 +134,7 @@ function parseNormal(
     // 跳过含特定关键词的行（如"合计"行）
     if (skipRowPatterns.some(kw => rowContainsKeyword(row, kw))) continue;
 
-    const orderRow = buildOrderRow(row, fieldMappings, headerRowData, staticValues, defaultValues, footerValues);
+    const orderRow = buildOrderRow(row, fieldMappings, headerRowData, staticValues, defaultValues, mergedExtras);
     rawResultRows.push(orderRow);
   }
 
