@@ -1,54 +1,24 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import type { SubmittedOrder } from '@/types';
+import type { OrderGroup } from '@/types';
 import { Pagination } from '../_components/Pagination';
-
-const COLUMNS: { key: keyof SubmittedOrder; label: string; width?: number }[] = [
-  { key: '外部编码', label: '外部编码' },
-  { key: '收货门店', label: '收货门店' },
-  { key: '收件人姓名', label: '收件人' },
-  { key: '收件人电话', label: '电话' },
-  { key: '收件人地址', label: '收货地址', width: 220 },
-  { key: 'sku_编码', label: 'SKU编码' },
-  { key: 'sku_名称', label: 'SKU名称', width: 180 },
-  { key: 'sku_数量', label: '数量' },
-  { key: 'sku_规格', label: '规格' },
-  { key: '备注', label: '备注' },
-];
 
 const PAGE_SIZE = 20;
 
-/** DB 列（英文蛇形）→ 展示用对象。后端返回原始 outbound_orders 行。 */
-function mapRow(raw: any): Record<string, any> {
-  return {
-    外部编码: raw.external_code ?? '',
-    收货门店: raw.store_name ?? '',
-    收件人姓名: raw.receiver_name ?? '',
-    收件人电话: raw.receiver_phone ?? '',
-    收件人地址: raw.receiver_address ?? '',
-    sku_编码: raw.sku_code ?? '',
-    sku_名称: raw.sku_name ?? '',
-    sku_数量: raw.sku_quantity ?? '',
-    sku_规格: raw.sku_spec ?? '',
-    备注: raw.remark ?? '',
-    created_at: raw.created_at,
-  };
-}
-
 export default function OrdersPage() {
-  // 筛选输入（受控）与「已应用」的筛选条件分离：点查询才提交
   const [qCode, setQCode] = useState('');
   const [qName, setQName] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [applied, setApplied] = useState({ qCode: '', qName: '', dateFrom: '', dateTo: '' });
 
-  const [rows, setRows] = useState<Record<string, any>[]>([]);
+  const [groups, setGroups] = useState<OrderGroup[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -64,11 +34,11 @@ export default function OrdersPage() {
       const r = await fetch(`/api/orders?${sp.toString()}`);
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || '查询失败');
-      setRows((d.orders || []).map(mapRow));
+      setGroups(d.groups || []);
       setTotal(d.total ?? 0);
     } catch (e: any) {
       setError(e.message || '查询失败');
-      setRows([]);
+      setGroups([]);
       setTotal(0);
     } finally {
       setLoading(false);
@@ -87,7 +57,15 @@ export default function OrdersPage() {
     setPage(1);
   };
 
-  return <OrdersView {...{ qCode, setQCode, qName, setQName, dateFrom, setDateFrom, dateTo, setDateTo, search, reset, rows, total, page, setPage, loading, error }} />;
+  const toggle = (code: string) => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code); else next.add(code);
+      return next;
+    });
+  };
+
+  return <OrdersView {...{ qCode, setQCode, qName, setQName, dateFrom, setDateFrom, dateTo, setDateTo, search, reset, groups, total, page, setPage, loading, error, expanded, toggle }} />;
 }
 
 interface ViewProps {
@@ -96,9 +74,10 @@ interface ViewProps {
   dateFrom: string; setDateFrom: (v: string) => void;
   dateTo: string; setDateTo: (v: string) => void;
   search: () => void; reset: () => void;
-  rows: Record<string, any>[];
+  groups: OrderGroup[];
   total: number; page: number; setPage: (p: number) => void;
   loading: boolean; error: string;
+  expanded: Set<string>; toggle: (code: string) => void;
 }
 
 function OrdersView(p: ViewProps) {
@@ -112,7 +91,6 @@ function OrdersView(p: ViewProps) {
           </div>
         </div>
 
-        {/* 筛选栏 */}
         <div className="card">
           <div className="card-body">
             <div className="filter-bar">
@@ -138,13 +116,12 @@ function OrdersView(p: ViewProps) {
                 <input className="form-input" type="date" value={p.dateTo}
                   onChange={(e) => p.setDateTo(e.target.value)} />
               </div>
-              <button className="btn btn-primary" onClick={p.search}>🔍 查询</button>
+              <button className="btn btn-primary" onClick={p.search}>查询</button>
               <button className="btn btn-default" onClick={p.reset}>重置</button>
             </div>
           </div>
         </div>
 
-        {/* 结果表 */}
         <div className="card">
           <div className="card-body" style={{ padding: 0 }}>
             {p.error && (
@@ -154,34 +131,84 @@ function OrdersView(p: ViewProps) {
               <table className="data-table">
                 <thead>
                   <tr>
+                    <th style={{ width: 36 }}></th>
                     <th style={{ width: 56 }}>#</th>
-                    {COLUMNS.map((c) => <th key={String(c.key)} style={c.width ? { minWidth: c.width } : undefined}>{c.label}</th>)}
+                    <th>外部编码</th>
+                    <th>收货门店</th>
+                    <th>收件人</th>
+                    <th>电话</th>
+                    <th style={{ minWidth: 180 }}>收货地址</th>
+                    <th style={{ width: 60 }}>SKU数</th>
                     <th style={{ width: 160 }}>提交时间</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {p.rows.length === 0 ? (
-                    <tr><td colSpan={COLUMNS.length + 2} style={{ textAlign: 'center', padding: 40, color: 'var(--color-text-placeholder)' }}>
+                  {p.groups.length === 0 ? (
+                    <tr><td colSpan={9} style={{ textAlign: 'center', padding: 40, color: 'var(--color-text-placeholder)' }}>
                       {p.loading ? '加载中…' : '暂无数据'}
                     </td></tr>
-                  ) : p.rows.map((row, i) => (
-                    <tr key={i}>
-                      <td style={{ color: 'var(--color-text-secondary)' }}>{(p.page - 1) * 20 + i + 1}</td>
-                      {COLUMNS.map((c) => <td key={String(c.key)}>{String(row[c.key as string] ?? '')}</td>)}
-                      <td style={{ color: 'var(--color-text-secondary)', fontSize: 12 }}>
-                        {row.created_at ? new Date(row.created_at).toLocaleString('zh-CN') : ''}
-                      </td>
-                    </tr>
+                  ) : p.groups.map((g, i) => (
+                    <GroupRow key={g.外部编码 || i} group={g} idx={i} page={p.page} expanded={p.expanded.has(g.外部编码)} onToggle={() => p.toggle(g.外部编码)} />
                   ))}
                 </tbody>
               </table>
             </div>
             <div style={{ padding: '0 16px 12px' }}>
-              <Pagination page={p.page} pageSize={20} total={p.total} onChange={p.setPage} />
+              <Pagination page={p.page} pageSize={PAGE_SIZE} total={p.total} onChange={p.setPage} />
             </div>
           </div>
         </div>
       </main>
     </div>
+  );
+}
+
+function GroupRow({ group: g, idx, page, expanded, onToggle }: { group: OrderGroup; idx: number; page: number; expanded: boolean; onToggle: () => void }) {
+  return (
+    <>
+      <tr style={{ cursor: 'pointer', borderBottom: expanded ? 'none' : undefined }} onClick={onToggle}>
+        <td style={{ textAlign: 'center', color: 'var(--color-text-placeholder)', fontSize: 12 }}>
+          {expanded ? '▼' : '▶'}
+        </td>
+        <td style={{ color: 'var(--color-text-secondary)' }}>{(page - 1) * PAGE_SIZE + idx + 1}</td>
+        <td style={{ color: 'var(--color-primary)', fontWeight: 500 }}>{g.外部编码 || ''}</td>
+        <td>{g.收货门店 || ''}</td>
+        <td>{g.收件人姓名 || ''}</td>
+        <td>{g.收件人电话 || ''}</td>
+        <td style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{g.收件人地址 || ''}</td>
+        <td><span className="tag tag-info">{g.sku_count}</span></td>
+        <td style={{ color: 'var(--color-text-secondary)', fontSize: 12 }}>
+          {g.created_at ? new Date(g.created_at).toLocaleString('zh-CN') : ''}
+        </td>
+      </tr>
+      {expanded && (
+        <tr>
+          <td colSpan={9} style={{ padding: '0 0 12px 0', borderBottom: '1px solid var(--color-border-light)' }}>
+            <div style={{ padding: '0 16px 0 92px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ background: 'var(--color-bg-th)' }}>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', borderBottom: '1px solid var(--color-border-light)', fontWeight: 600 }}>SKU编码</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', borderBottom: '1px solid var(--color-border-light)', fontWeight: 600 }}>SKU名称</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'right', borderBottom: '1px solid var(--color-border-light)', fontWeight: 600 }}>数量</th>
+                    <th style={{ padding: '6px 12px', textAlign: 'left', borderBottom: '1px solid var(--color-border-light)', fontWeight: 600 }}>规格</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(g.sku_items || []).map((sku, si) => (
+                    <tr key={si}>
+                      <td style={{ padding: '5px 12px', borderBottom: '1px solid #f5f5f5' }}>{sku.sku_code || ''}</td>
+                      <td style={{ padding: '5px 12px', borderBottom: '1px solid #f5f5f5' }}>{sku.sku_name || ''}</td>
+                      <td style={{ padding: '5px 12px', borderBottom: '1px solid #f5f5f5', textAlign: 'right' }}>{sku.sku_quantity ?? ''}</td>
+                      <td style={{ padding: '5px 12px', borderBottom: '1px solid #f5f5f5', color: 'var(--color-text-secondary)' }}>{sku.sku_spec || ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }

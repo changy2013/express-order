@@ -241,31 +241,30 @@ export default function Home() {
     }
   };
 
-  /** 预览阶段查库预检：把"与已入库数据重复"的行标红（_duplicateWithBatch） */
+  /** 预览阶段查库预检：按外部编码查重，把同外部编码的所有行标红（_duplicateWithBatch） */
   const precheckDuplicates = async (current: OrderRow[]) => {
-    const keys = current
-      .filter((r) => String(r.外部编码 || '').trim())
-      .map((r) => ({ 外部编码: String(r.外部编码 || '').trim(), SKU物品编码: String(r.SKU物品编码 || '') }));
-    if (keys.length === 0) return;
+    const codes = Array.from(
+      new Set(current.map((r) => String(r.外部编码 || '').trim()).filter(Boolean))
+    );
+    if (codes.length === 0) return;
     try {
       const r = await fetch('/api/orders/check-dup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keys }),
+        body: JSON.stringify({ codes }),
       });
       const d = await r.json();
       if (!r.ok) return;
-      const dupKeys = new Set<string>((d.duplicates || []).map((s: any) => `${s.外部编码} ${s.SKU物品编码}`));
-      if (dupKeys.size === 0) return;
+      const dupCodes = new Set<string>(d.duplicateCodes || []);
+      if (dupCodes.size === 0) return;
       setRows((prev) =>
         prev.map((row) => {
           const code = String(row.外部编码 || '').trim();
-          const hit = !!code && dupKeys.has(`${code} ${row.SKU物品编码 || ''}`);
-          return hit ? { ...row, _duplicateWithBatch: true } : row;
+          return !!code && dupCodes.has(code) ? { ...row, _duplicateWithBatch: true } : row;
         })
       );
-      const n = dupKeys.size;
-      toast(`检测到 ${n} 行与已入库数据重复，已在表格中标红（提交时将自动跳过）`, 'warning');
+      const n = dupCodes.size;
+      toast(`检测到 ${n} 个外部编码与已入库数据重复，已在表格中标红（提交时将自动跳过）`, 'warning');
     } catch { /* 预检失败静默，不影响主流程 */ }
   };
 
@@ -354,6 +353,7 @@ export default function Home() {
       setSubmitProgress({ active: true, percent: 100, label: '提交完成' });
 
       const skipped: { 外部编码: string; SKU物品编码: string }[] = d.skipped || [];
+      const duplicateCodes: string[] = d.duplicateCodes || [];
       const success: number = d.count ?? 0;
       const skippedCount: number = d.skippedCount ?? (valid.length - success);
       // 失败 = 提交总数 - 成功 - 重复跳过（正常路径下为 0，异常少插时兜底体现）
@@ -362,14 +362,13 @@ export default function Home() {
       // 结果汇总：成功 N 条、失败/跳过 N 条
       setSubmitResult({ total: valid.length, success, skipped: skippedCount, failed, batchId: d.batchId });
 
-      if (skipped.length > 0) {
-        // DB 唯一索引拦截了与已入库数据重复的行：标红保留在预览页，提示用户
-        const skipKeys = new Set(skipped.map((s) => `${s.外部编码} ${s.SKU物品编码}`));
+      if (duplicateCodes.length > 0 || skipped.length > 0) {
+        // 按外部编码级别标红：所有与已入库数据重复的外部编码对应的行
+        const dupCodeSet = new Set(duplicateCodes);
         setRows((prev) =>
           prev.map((row) => {
             const code = String(row.外部编码 || '').trim();
-            const hit = !!code && skipKeys.has(`${code} ${row.SKU物品编码 || ''}`);
-            return hit ? { ...row, _duplicateWithBatch: true } : row;
+            return !!code && dupCodeSet.has(code) ? { ...row, _duplicateWithBatch: true } : row;
           })
         );
         toast(`成功入库 ${success} 条，${skippedCount} 条与已入库数据重复已跳过`, 'warning');

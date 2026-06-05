@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ orders: r.rows });
     }
 
-    // 已导入运单列表：按 外部编码 / 收件人姓名 / 提交时间 筛选 + 分页
+    // 已导入运单列表：按外部编码聚合分组，按 外部编码 / 收件人姓名 / 提交时间 筛选 + 分页
     const qCode = (searchParams.get('q_code') || '').trim();
     const qName = (searchParams.get('q_name') || '').trim();
     const dateFrom = (searchParams.get('date_from') || '').trim();
@@ -41,12 +41,14 @@ export async function GET(req: NextRequest) {
     if (qCode) { params.push(`%${qCode}%`); where.push(`external_code ILIKE $${params.length}`); }
     if (qName) { params.push(`%${qName}%`); where.push(`receiver_name ILIKE $${params.length}`); }
     if (dateFrom) { params.push(dateFrom); where.push(`created_at >= $${params.length}`); }
-    // date_to 含当日：传 'YYYY-MM-DD' 时按 < 次日 处理
     if (dateTo) { params.push(dateTo); where.push(`created_at < ($${params.length}::date + INTERVAL '1 day')`); }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
+    // 按外部编码聚合：空值行用 row id 各自独立成组
+    const groupExpr = `CASE WHEN external_code IS NOT NULL AND TRIM(external_code) != '' THEN external_code ELSE id::varchar END`;
+
     const countRes = await query<{ total: string }>(
-      `SELECT COUNT(*)::int AS total FROM outbound_orders ${whereSql}`,
+      `SELECT COUNT(DISTINCT ${groupExpr})::int AS total FROM outbound_orders ${whereSql}`,
       params
     );
     const total = Number(countRes.rows[0]?.total ?? 0);
@@ -54,12 +56,28 @@ export async function GET(req: NextRequest) {
     const offset = (page - 1) * pageSize;
     const listParams = [...params, pageSize, offset];
     const r = await query(
-      `SELECT * FROM outbound_orders ${whereSql}
-       ORDER BY created_at DESC
+      `SELECT
+         ${groupExpr} AS external_code,
+         MAX(store_name) as store_name,
+         MAX(receiver_name) as receiver_name,
+         MAX(receiver_phone) as receiver_phone,
+         MAX(receiver_address) as receiver_address,
+         MAX(remark) as remark,
+         COUNT(*)::int as sku_count,
+         MAX(created_at) as created_at,
+         json_agg(json_build_object(
+           'sku_code', sku_code,
+           'sku_name', sku_name,
+           'sku_quantity', sku_quantity,
+           'sku_spec', sku_spec
+         ) ORDER BY sku_code) as sku_items
+       FROM outbound_orders ${whereSql}
+       GROUP BY ${groupExpr}
+       ORDER BY MAX(created_at) DESC
        LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
       listParams
     );
-    return NextResponse.json({ orders: r.rows, total, page, pageSize });
+    return NextResponse.json({ groups: r.rows, total, page, pageSize });
   } catch (error: any) {
     console.error('fetch orders failed:', error);
     return NextResponse.json({ error: error.message || '查询失败' }, { status: 500 });
@@ -89,10 +107,10 @@ export async function POST(req: NextRequest) {
       [batchId, fileName || '未命名文件', fileSize || 0, ruleId || null, ruleName || null, rows.length]
     );
 
-    // 重复检测改为应用层（已去掉 DB 唯一约束）：先查库找出与已入库数据重复的
-    // (external_code, sku_code)，跳过这些行，只插入其余行。外部编码为空的行不参与查重。
+    // 外部编码级重复检测：先查库找出已存在的 (external_code, sku_code) 对，同时收集已存在的外部编码
     const keyOf = (code: string, sku: string) => `${code} ${sku}`;
     const existingKeys = new Set<string>();
+    const existingCodes = new Set<string>(); // 已入库的外部编码集合
     const codes = Array.from(
       new Set(rows.map((r) => String(r.外部编码 || '').trim()).filter(Boolean))
     );
@@ -104,7 +122,10 @@ export async function POST(req: NextRequest) {
         `SELECT external_code, sku_code FROM outbound_orders WHERE external_code IN (${ph})`,
         slice
       );
-      for (const x of er.rows) existingKeys.add(keyOf(x.external_code ?? '', x.sku_code));
+      for (const x of er.rows) {
+        existingKeys.add(keyOf(x.external_code ?? '', x.sku_code));
+        existingCodes.add(x.external_code ?? '');
+      }
     }
 
     // 区分要插入的行 vs 与已入库重复要跳过的行
@@ -121,6 +142,9 @@ export async function POST(req: NextRequest) {
       }
       toInsert.push(row);
     }
+
+    // 提交数据中，与已入库数据存在相同外部编码的集合
+    const duplicateCodes = Array.from(existingCodes).filter((c) => codes.includes(c));
 
     // 批量插入（分批多值 INSERT）。已去掉 ON CONFLICT，重复行在上面已过滤。
     // CHUNK 取 4000：12 参数/行 × 4000 = 48000 < PG 上限 65535，1000 单一次 INSERT 即可，
@@ -175,6 +199,7 @@ export async function POST(req: NextRequest) {
       submitted: rows.length,
       skippedCount: rows.length - inserted,
       skipped: skippedUniq,
+      duplicateCodes,
     });
   } catch (error: any) {
     console.error('submit orders failed:', error);

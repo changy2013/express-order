@@ -43,32 +43,38 @@ export function extractFooterFields(
 
   for (const pat of footerConfig.fieldPatterns) {
     const regex = new RegExp(pat.pattern);
-    // 先在整体文本中搜索
-    const m = footerText.match(regex);
-    if (m) {
-      result[pat.targetField] = (m[pat.group ?? 1] || '').trim();
-      continue;
-    }
-    // 再逐行逐单元格搜索（处理 label-value 横向排列）
+
+    // 第一遍：仅在 footer 区域搜索（footerStart → 末尾）
+    let m = footerText.match(regex);
+    if (m) { result[pat.targetField] = (m[pat.group ?? 1] || '').trim(); continue; }
+    let found = false;
     for (let ri = footerStart; ri < rawRows.length; ri++) {
-      const row = rawRows[ri];
-      for (let ci = 0; ci < row.length; ci++) {
-        const cell = String(row[ci] || '').trim();
-        const cellMatch = cell.match(regex);
-        if (cellMatch) {
-          // 值在下一个非空单元格
-          const nextVal = findNextNonEmpty(row, ci + 1);
-          if (nextVal) {
-            result[pat.targetField] = nextVal.trim();
-            break;
-          }
-        }
-      }
-      if (result[pat.targetField]) break;
+      if (tryCellMatch(regex, rawRows[ri], pat.targetField, result)) { found = true; break; }
+    }
+    if (found) continue;
+
+    // 第二遍：向上扩展（如"单据号"在"收货人"上方时也能命中）
+    const scanUpStart = Math.max(0, footerStart - 10);
+    const expandedText = rawRows.slice(scanUpStart, footerStart).map(r => r.join('\t')).join('\n');
+    m = expandedText.match(regex);
+    if (m) { result[pat.targetField] = (m[pat.group ?? 1] || '').trim(); continue; }
+    for (let ri = scanUpStart; ri < footerStart; ri++) {
+      if (tryCellMatch(regex, rawRows[ri], pat.targetField, result)) break;
     }
   }
 
   return result;
+}
+
+function tryCellMatch(regex: RegExp, row: RawRow, targetField: string, result: Partial<Record<string, string>>): boolean {
+  for (let ci = 0; ci < row.length; ci++) {
+    const cell = String(row[ci] || '').trim();
+    if (regex.test(cell)) {
+      const nextVal = findNextNonEmpty(row, ci + 1);
+      if (nextVal) { result[targetField] = nextVal.trim(); return true; }
+    }
+  }
+  return false;
 }
 
 function findNextNonEmpty(row: RawRow, startIdx: number): string {

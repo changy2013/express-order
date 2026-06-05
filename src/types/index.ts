@@ -76,3 +76,24 @@ export interface SubmitResult {
   failed: number;     // 其它原因未入库的条数（异常等）
   batchId?: string;
 }
+
+/** SKU 明细行（聚合展示用） */
+export interface SkuItem {
+  sku_code: string;
+  sku_name: string;
+  sku_quantity: number;
+  sku_spec: string;
+}
+
+/** 按外部编码聚合后的出库单 */
+export interface OrderGroup {
+  外部编码: string;
+  收货门店: string;
+  收件人姓名: string;
+  收件人电话: string;
+  收件人地址: string;
+  备注: string;
+  sku_count: number;
+  created_at: string;
+  sku_items: SkuItem[];
+}
