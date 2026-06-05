@@ -146,7 +146,7 @@ export function PreviewStep({ state, actions }: { state: ViewState; actions: Vie
       {/* 重复检测图例 */}
       {(dupInBatchCount > 0 || dupWithExistingCount > 0) && (
         <div style={{ display: 'flex', gap: 16, fontSize: 13, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ color: 'var(--color-text-secondary)' }}>外部编码重复：</span>
+          <span style={{ color: 'var(--color-text-secondary)' }}>(外部编码 + SKU) 重复：</span>
           {dupInBatchCount > 0 && (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <span style={{ width: 14, height: 14, borderRadius: 3, background: 'var(--color-warning-bg)', border: '1px solid var(--color-warning)' }} />

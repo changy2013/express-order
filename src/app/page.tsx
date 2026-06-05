@@ -11,20 +11,37 @@ type TargetKey =
   | '外部编码' | '收货门店' | '收件人姓名' | '收件人电话' | '收件人地址'
   | 'SKU物品编码' | 'SKU物品名称' | 'SKU发货数量' | 'SKU规格型号' | '备注';
 
-/** 校验单行：返回精确到字段的错误列表（field 用目标字段名，便于单元格标红） */
+/**
+ * A组（门店模式）：填 收货门店 即可，不要求收件人三字段
+ * B组（收件人模式）：收件人姓名 + 电话 + 地址 三个全填
+ * 两组至少填一组；两组都填也可以；都不填则校验不通过。
+ */
+function hasGroupA(r: OrderRow) { return !!String(r.收货门店 || '').trim(); }
+function hasGroupB(r: OrderRow) { return !!String(r.收件人姓名 || '').trim() && !!String(r.收件人电话 || '').trim() && !!String(r.收件人地址 || '').trim(); }
+
 function validateRow(r: OrderRow): OrderRow['_errors'] {
   const errs: NonNullable<OrderRow['_errors']> = [];
-  // 必填：SKU 编码与名称至少其一
-  if (!String(r.SKU物品编码 || '').trim() && !String(r.SKU物品名称 || '').trim()) {
-    errs.push({ field: 'SKU物品编码', message: 'SKU编码与名称不能同时为空' });
-    errs.push({ field: 'SKU物品名称', message: 'SKU编码与名称不能同时为空' });
+  const trim = (v: unknown) => String(v ?? '').trim();
+
+  // SKU 编码：必填
+  if (!trim(r.SKU物品编码)) errs.push({ field: 'SKU物品编码', message: 'SKU编码为必填' });
+  // SKU 名称：必填
+  if (!trim(r.SKU物品名称)) errs.push({ field: 'SKU物品名称', message: 'SKU名称为必填' });
+  // 数量：必须为正数
+  if (!(Number(r.SKU发货数量) > 0)) errs.push({ field: 'SKU发货数量', message: '数量必须为正数' });
+
+  // A组/B组 二选一
+  const a = hasGroupA(r);
+  const b = hasGroupB(r);
+  if (!a && !b) {
+    errs.push({ field: '收货门店', message: '请填写收货门店，或填写完整的收件人信息' });
+    if (!trim(r.收件人姓名)) errs.push({ field: '收件人姓名', message: '请填写收件人姓名' });
+    if (!trim(r.收件人电话)) errs.push({ field: '收件人电话', message: '请填写收件人电话' });
+    if (!trim(r.收件人地址)) errs.push({ field: '收件人地址', message: '请填写收件人地址' });
   }
-  // 件数（数量）必须为正数
-  if (!(Number(r.SKU发货数量) > 0)) {
-    errs.push({ field: 'SKU发货数量', message: '数量必须为正数' });
-  }
-  // 电话格式（填写了才校验）：中国大陆手机号或 7–12 位固话/带区号
-  const phone = String(r.收件人电话 || '').trim();
+
+  // 电话格式（填写了才校验）
+  const phone = trim(r.收件人电话);
   if (phone && !/^(1[3-9]\d{9}|0\d{2,3}-?\d{7,8})$/.test(phone)) {
     errs.push({ field: '收件人电话', message: '电话格式不正确' });
   }
@@ -32,11 +49,9 @@ function validateRow(r: OrderRow): OrderRow['_errors'] {
 }
 
 /**
- * 全量校验 + 同批次外部编码重复检测
- * - 同批次内：外部编码重复 → _isDuplicate
- * - 与已入库数据的重复不在此预判（不预拉全库编码）：改由提交时数据库唯一索引拦截，
- *   提交后用返回的 skipped 列表回填 _duplicateWithBatch。
- * 外部编码为空的行不参与重复判定。校验会清掉旧的 _duplicateWithBatch（编辑后该判定已失效）。
+ * 全量校验 + 同批次 (外部编码, SKU编码) 重复检测
+ * 同一外部单有多个 SKU 是正常业务场景，只有当外部编码和 SKU 编码都相同时才算重复。
+ * 外部编码或 SKU 为空的行不参与重复判定。
  */
 function validateAll(rows: OrderRow[]): OrderRow[] {
   const seen = new Set<string>();
