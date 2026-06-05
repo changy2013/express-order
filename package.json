@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@napi-rs/canvas": "1.0.0",
     "@types/react-window": "^1.8.8",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
