@@ -862,7 +862,7 @@ export default function Home() {
                   <div className="spinner spinner-primary" style={{ width: '32px', height: '32px', borderWidth: '3px' }}></div>
                 </div>
               ) : filteredOrders.length === 0 ? (
-                <div style={{ padding: '60px 20px', textLight: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                <div style={{ padding: '60px 20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
                   <span style={{ fontSize: '48px', color: 'var(--color-text-placeholder)' }}>📭</span>
                   <div style={{ fontSize: '14px', color: 'var(--color-text-secondary)' }}>
                     暂无符合条件的订单记录，请上传文件导入新单
@@ -952,7 +952,7 @@ export default function Home() {
                   <div className="spinner spinner-primary" style={{ width: '32px', height: '32px', borderWidth: '3px' }}></div>
                 </div>
               ) : batchesList.length === 0 ? (
-                <div style={{ padding: '60px 20px', textLight: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                <div style={{ padding: '60px 20px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
                   <span style={{ fontSize: '48px', color: 'var(--color-text-placeholder)' }}>📁</span>
                   <div style={{ fontSize: '14px', color: 'var(--color-text-secondary)' }}>
                     暂无任何文件上传日志
