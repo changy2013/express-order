@@ -138,6 +138,38 @@ function parseNormal(
     rawResultRows.push(orderRow);
   }
 
+  // 后处理：若关键字段全为空，从非数据行按标签→值提取补齐
+  if (rawResultRows.length > 0) {
+    const fieldLabels: Partial<Record<TargetField, string[]>> = {
+      外部编码: ['单据号', '配送单号', '发货单号', '订单号', '外部编码', '单号'],
+      收货门店: ['收货机构', '收货门店', '门店', '调入门店'],
+      收件人姓名: ['收货人', '收件人'],
+      收件人电话: ['收货电话', '联系电话', '电话'],
+      收件人地址: ['收货地址', '地址'],
+    };
+    for (const [field, labels] of Object.entries(fieldLabels)) {
+      if (rawResultRows.some(r => String((r as any)[field] || '').trim())) continue;
+      const scanRows = [...rawRows.slice(0, dataStartRow), ...rawRows.slice(endRow)];
+      let found = false;
+      for (const r of scanRows) {
+        for (let ci = 0; ci < r.length; ci++) {
+          const cell = String(r[ci] || '').trim();
+          if (!labels!.some(l => cell.includes(l))) continue;
+          for (let vi = ci + 1; vi < r.length; vi++) {
+            const v = String(r[vi] || '').trim();
+            if (v) {
+              for (const row of rawResultRows) { (row as any)[field] = v; }
+              found = true;
+              break;
+            }
+          }
+          if (found) break;
+        }
+        if (found) break;
+      }
+    }
+  }
+
   // 聚合处理（同一 aggregationKey 的多行 SKU 合并）
   if (aggregationKey && rawResultRows.length > 0) {
     return aggregateRows(rawResultRows, aggregationKey);
